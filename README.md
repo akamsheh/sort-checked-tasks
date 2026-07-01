@@ -1,92 +1,80 @@
-# Obsidian Sample Plugin
+# Sort Checked Tasks
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+An [Obsidian](https://obsidian.md) plugin that keeps your checklists tidy by moving completed items to the bottom of their task group.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+When you check off a task, the unchecked items stay at the top and the checked ones sink to the bottom — so what's left to do is always front and center.
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+## Features
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+- **Sorts on checkbox click** in Reading View — tick an item and the list reorders automatically.
+- **Command palette action** — run **Sort Checked Tasks: Sort current note** to sort on demand in any mode (Source, Live Preview, or Reading View). Edit mode is only sorted via this command.
+- **Stable ordering** — items keep their relative order within the checked and unchecked groups; only the checked/unchecked split moves.
+- **Nested-aware** — sub-tasks travel with their parent and are themselves sorted, at every level of nesting.
+- **Safe with your content** — fenced code blocks are ignored, mixed tab/space indentation is handled, and original line endings (LF or CRLF) are preserved.
 
-## First time developing plugins?
+## Example
 
-Quick starting guide for new plugin devs:
+Before:
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
-
-## Releasing new releases
-
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
-
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+```markdown
+- [x] Buy milk
+- [ ] Walk the dog
+- [x] Pay rent
+- [ ] Call the dentist
 ```
 
-If you have multiple URLs, you can also do:
+After sorting:
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
+```markdown
+- [ ] Walk the dog
+- [ ] Call the dentist
+- [x] Buy milk
+- [x] Pay rent
 ```
 
-## API Documentation
+Nested checklists are sorted within their parent too:
 
-See https://docs.obsidian.md
+```markdown
+- [ ] Trip prep
+	- [ ] Book hotel
+	- [x] Book flights
+```
+
+## Usage
+
+- **Reading View:** just click a checkbox. The list reorders after Obsidian saves the change.
+- **Editing (Source / Live Preview):** open the command palette (`Ctrl/Cmd + P`) and run **Sort Checked Tasks: Sort current note**. You can assign a hotkey to it under **Settings → Hotkeys**.
+
+Only contiguous runs of checklist items at the same indentation are treated as a group. Headings, blank-line-separated lists, and non-task text act as natural boundaries between groups, which are each sorted independently.
+
+## Installation
+
+### From Community Plugins (once published)
+
+1. Open **Settings → Community plugins** and disable Restricted mode.
+2. Click **Browse**, search for "Sort Checked Tasks", and install it.
+3. Enable the plugin.
+
+### Manual installation
+
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/akamsheh/sort-checked-tasks/releases).
+2. Copy them into your vault at `VaultFolder/.obsidian/plugins/sort-checked-tasks/`.
+3. Reload Obsidian and enable the plugin under **Settings → Community plugins**.
+
+## Development
+
+This project uses TypeScript and is bundled with esbuild.
+
+```bash
+npm install      # install dependencies
+npm run dev      # build in watch mode
+npm run build    # type-check and produce a production main.js
+npm test         # run the unit tests (Vitest)
+npm run lint     # lint with ESLint + eslint-plugin-obsidianmd
+```
+
+The sorting logic lives in [`src/sort.ts`](src/sort.ts) as a pure, dependency-free function (`sortTaskGroups`), which makes it easy to test without mocking the Obsidian API — see [`src/sort.test.ts`](src/sort.test.ts). The plugin lifecycle and Obsidian wiring live in [`src/main.ts`](src/main.ts).
+
+## License
+
+[MIT](LICENSE) © Adam Kamsheh

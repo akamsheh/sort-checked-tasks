@@ -1,114 +1,194 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
-import {
-	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
-} from './settings';
+import { MarkdownView, Plugin, TAbstractFile, TFile } from "obsidian";
+import { sortTaskGroups } from "./sort";
 
-// Remember to rename these classes and interfaces!
+export default class SortCheckedTasksPlugin extends Plugin {
+	/**
+	 * Files whose Reading View checkbox was just clicked.
+	 *
+	 * We wait for Obsidian itself to write the checkbox change before
+	 * sorting, rather than guessing with a short timeout.
+	 */
+	private pendingSortPaths = new Set<string>();
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
+	private fallbackTimers = new Map<string, number>();
+	private sortTimers = new Map<string, number>();
 
-	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
+	onload(): void {
+		/*
+		 * Capture the click before Obsidian's normal checkbox handler runs.
+		 * We only mark the file as pending here. The actual sort happens
+		 * after Obsidian modifies the underlying Markdown file.
+		 */
+		this.registerDomEvent(
+			activeDocument,
+			"click",
+			(event: MouseEvent) => {
+				this.handleCheckboxClick(event);
 			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
+			true,
+		);
+
+		/*
+		 * Obsidian fires this after it writes the checkbox state to the note.
+		 * This is the reliable point at which to read and reorder the tasks.
+		 */
+		this.registerEvent(
+			this.app.vault.on("modify", (file: TAbstractFile) => {
+				this.handleVaultModify(file);
+			}),
+		);
+
+		/*
+		 * A manual trigger so tasks can be sorted from the command palette.
+		 * This works in every editing mode, unlike the checkbox-click path
+		 * which only fires in Reading View.
+		 */
 		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
+			id: "sort-current-note",
+			name: "Sort current note",
 			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+				const file = this.app.workspace.getActiveFile();
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+				if (!file || file.extension !== "md") {
+					return false;
 				}
-				return false;
+
+				if (!checking) {
+					void this.sortFile(file);
+				}
+
+				return true;
 			},
 		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
-		);
 	}
 
-	onunload() {}
+	onunload(): void {
+		for (const timer of this.fallbackTimers.values()) {
+			window.clearTimeout(timer);
+		}
 
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
+		for (const timer of this.sortTimers.values()) {
+			window.clearTimeout(timer);
+		}
+
+		this.fallbackTimers.clear();
+		this.sortTimers.clear();
+		this.pendingSortPaths.clear();
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+	private handleCheckboxClick(event: MouseEvent): void {
+		const target = event.target;
 
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+		if (
+			!(target instanceof HTMLInputElement) ||
+			!target.matches("input.task-list-item-checkbox")
+		) {
+			return;
+		}
+
+		const view =
+			this.app.workspace.getActiveViewOfType(MarkdownView);
+
+		/*
+		 * getMode() returns "preview" for Reading View.
+		 * Live Preview and Source mode both return "source".
+		 */
+		if (
+			!view ||
+			view.getMode() !== "preview" ||
+			!view.containerEl.contains(target)
+		) {
+			return;
+		}
+
+		const file = this.app.workspace.getActiveFile();
+
+		if (!file || file.extension !== "md") {
+			return;
+		}
+
+		this.pendingSortPaths.add(file.path);
+		this.armFallbackTimer(file);
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	private handleVaultModify(file: TAbstractFile): void {
+		if (
+			!(file instanceof TFile) ||
+			!this.pendingSortPaths.has(file.path)
+		) {
+			return;
+		}
+
+		/*
+		 * This modification was caused by the checkbox click we observed.
+		 * Clear the pending state before our own write so it cannot loop.
+		 */
+		this.pendingSortPaths.delete(file.path);
+		this.clearFallbackTimer(file.path);
+
+		/*
+		 * A very short delay allows Obsidian to finish its own render cycle.
+		 */
+		this.scheduleSort(file);
+	}
+
+	/*
+	 * Normally Obsidian's checkbox write triggers Vault "modify".
+	 * This fallback prevents a missed event from leaving the click pending.
+	 */
+	private armFallbackTimer(file: TFile): void {
+		this.clearFallbackTimer(file.path);
+
+		const timer = window.setTimeout(() => {
+			this.fallbackTimers.delete(file.path);
+
+			if (!this.pendingSortPaths.has(file.path)) {
+				return;
+			}
+
+			this.pendingSortPaths.delete(file.path);
+			this.scheduleSort(file);
+		}, 750);
+
+		this.fallbackTimers.set(file.path, timer);
+	}
+
+	private clearFallbackTimer(path: string): void {
+		const timer = this.fallbackTimers.get(path);
+
+		if (timer !== undefined) {
+			window.clearTimeout(timer);
+			this.fallbackTimers.delete(path);
+		}
+	}
+
+	private scheduleSort(file: TFile): void {
+		const existingTimer = this.sortTimers.get(file.path);
+
+		if (existingTimer !== undefined) {
+			window.clearTimeout(existingTimer);
+		}
+
+		const timer = window.setTimeout(() => {
+			this.sortTimers.delete(file.path);
+
+			void this.sortFile(file);
+		}, 75);
+
+		this.sortTimers.set(file.path, timer);
+	}
+
+	private async sortFile(file: TFile): Promise<void> {
+		try {
+			await this.app.vault.process(file, (contents) => {
+				return sortTaskGroups(contents);
+			});
+		} catch (error) {
+			console.error(
+				"Sort Checked Tasks: could not sort file:",
+				file.path,
+				error,
+			);
+		}
 	}
 }
