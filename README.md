@@ -36,8 +36,8 @@ Nested checklists are sorted within their parent too:
 
 ```markdown
 - [ ] Trip prep
-	- [ ] Book hotel
-	- [x] Book flights
+    - [ ] Book hotel
+    - [x] Book flights
 ```
 
 ## Usage

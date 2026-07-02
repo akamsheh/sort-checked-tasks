@@ -86,8 +86,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 			return;
 		}
 
-		const view =
-			this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		/*
 		 * getMode() returns "preview" for Reading View.
@@ -112,10 +111,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	}
 
 	private handleVaultModify(file: TAbstractFile): void {
-		if (
-			!(file instanceof TFile) ||
-			!this.pendingSortPaths.has(file.path)
-		) {
+		if (!(file instanceof TFile) || !this.pendingSortPaths.has(file.path)) {
 			return;
 		}
 

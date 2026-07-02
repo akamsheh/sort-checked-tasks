@@ -69,11 +69,9 @@ describe("sortTaskGroups", () => {
 	});
 
 	it("sorts sibling tasks at the top level it encounters", () => {
-		const input = [
-			"- [x] alpha",
-			"\t- [ ] alpha child",
-			"- [ ] beta",
-		].join("\n");
+		const input = ["- [x] alpha", "\t- [ ] alpha child", "- [ ] beta"].join(
+			"\n",
+		);
 		const expected = [
 			"- [ ] beta",
 			"- [x] alpha",
@@ -168,12 +166,8 @@ describe("sortTaskGroups", () => {
 	it("handles different bullet markers and ordered lists", () => {
 		expect(sortTaskGroups("* [x] a\n* [ ] b")).toBe("* [ ] b\n* [x] a");
 		expect(sortTaskGroups("+ [x] a\n+ [ ] b")).toBe("+ [ ] b\n+ [x] a");
-		expect(sortTaskGroups("1. [x] a\n2. [ ] b")).toBe(
-			"2. [ ] b\n1. [x] a",
-		);
-		expect(sortTaskGroups("1) [x] a\n2) [ ] b")).toBe(
-			"2) [ ] b\n1) [x] a",
-		);
+		expect(sortTaskGroups("1. [x] a\n2. [ ] b")).toBe("2. [ ] b\n1. [x] a");
+		expect(sortTaskGroups("1) [x] a\n2) [ ] b")).toBe("2) [ ] b\n1) [x] a");
 	});
 
 	it("treats spaces and tabs at the same visual width as one group", () => {

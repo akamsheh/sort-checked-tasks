@@ -3,7 +3,7 @@ name: Release Obsidian plugin
 on:
     push:
         tags:
-            - '*'
+            - "*"
 
 jobs:
     build:
@@ -19,7 +19,7 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
-                  cache: 'npm'
+                  cache: "npm"
 
             - name: Build plugin
               run: |
