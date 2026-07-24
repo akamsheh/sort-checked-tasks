@@ -135,6 +135,50 @@ describe("sortTaskGroups", () => {
 		expect(sortTaskGroups(input)).toBe(expected);
 	});
 
+	it("sorts a huge single group without overflowing the call stack", () => {
+		const count = 200_000;
+		const lines: string[] = [];
+
+		for (let index = 0; index < count; index++) {
+			lines.push(
+				index % 2 === 0 ? `- [x] done ${index}` : `- [ ] todo ${index}`,
+			);
+		}
+
+		const output = sortTaskGroups(lines.join("\n")).split("\n");
+
+		expect(output).toHaveLength(count);
+		expect(output[0]).toBe("- [ ] todo 1");
+		expect(output[count / 2 - 1]).toBe(`- [ ] todo ${count - 1}`);
+		expect(output[count / 2]).toBe("- [x] done 0");
+		expect(output[count - 1]).toBe(`- [x] done ${count - 2}`);
+	});
+
+	it("keeps custom checkbox states with the unchecked tasks", () => {
+		const input = [
+			"- [x] done",
+			"- [-] cancelled",
+			"- [/] in progress",
+			"- [ ] todo",
+		].join("\n");
+		const expected = [
+			"- [-] cancelled",
+			"- [/] in progress",
+			"- [ ] todo",
+			"- [x] done",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("does not treat an empty bracket pair as a task", () => {
+		// "- []" is a plain list item, so it bounds the group above it.
+		const input = ["- [] not a task", "- [x] a", "- [ ] b"].join("\n");
+		const expected = ["- [] not a task", "- [ ] b", "- [x] a"].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
 	it("ignores task lines inside fenced code blocks", () => {
 		const input = [
 			"```",
@@ -151,6 +195,69 @@ describe("sortTaskGroups", () => {
 			"```",
 			"- [ ] real todo",
 			"- [x] real done",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("does not let a tilde fence close a backtick fence", () => {
+		const input = [
+			"```",
+			"~~~",
+			"- [x] inside",
+			"- [ ] inside too",
+			"```",
+			"- [x] real done",
+			"- [ ] real todo",
+		].join("\n");
+		const expected = [
+			"```",
+			"~~~",
+			"- [x] inside",
+			"- [ ] inside too",
+			"```",
+			"- [ ] real todo",
+			"- [x] real done",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("requires a closing fence at least as long as the opening run", () => {
+		const input = [
+			"````",
+			"```",
+			"- [x] inside",
+			"````",
+			"- [x] a",
+			"- [ ] b",
+		].join("\n");
+		const expected = [
+			"````",
+			"```",
+			"- [x] inside",
+			"````",
+			"- [ ] b",
+			"- [x] a",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("opens a fence that carries an info string", () => {
+		const input = [
+			"```markdown",
+			"- [x] inside",
+			"```",
+			"- [x] a",
+			"- [ ] b",
+		].join("\n");
+		const expected = [
+			"```markdown",
+			"- [x] inside",
+			"```",
+			"- [ ] b",
+			"- [x] a",
 		].join("\n");
 
 		expect(sortTaskGroups(input)).toBe(expected);

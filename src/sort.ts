@@ -13,9 +13,21 @@ type TaskGroup = {
 	end: number;
 };
 
-const TASK_LINE = /^([ \t]*)(?:[-+*]|\d+[.)])\s+\[([ xX])\](?:\s|$)/;
+type OpenFence = {
+	marker: string;
+	length: number;
+};
+
+/*
+ * The bracket accepts any single character so that custom statuses such
+ * as [-], [/] or [>] count as tasks instead of splitting their list into
+ * separately sorted groups. Only [x] and [X] sort as checked; every
+ * other status floats with the unchecked tasks.
+ */
+const TASK_LINE = /^([ \t]*)(?:[-+*]|\d+[.)])\s+\[([^\]])\](?:\s|$)/;
 const LIST_LINE = /^([ \t]*)(?:[-+*]|\d+[.)])\s+/;
-const FENCE_LINE = /^[ \t]*(`{3,}|~{3,})/;
+const FENCE_OPEN = /^[ \t]*(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
 
 /**
  * Sort all contiguous task groups in the note.
@@ -68,18 +80,23 @@ function sortLines(lines: string[]): string[] {
 	const result = lines.slice();
 
 	let index = 0;
-	let inFence = false;
+	let fence: OpenFence | null = null;
 
 	while (index < result.length) {
 		const line = result[index] ?? "";
 
-		if (FENCE_LINE.test(line)) {
-			inFence = !inFence;
+		if (fence) {
+			if (closesFence(line, fence)) {
+				fence = null;
+			}
+
 			index++;
 			continue;
 		}
 
-		if (inFence) {
+		fence = parseFenceOpen(line);
+
+		if (fence) {
 			index++;
 			continue;
 		}
@@ -98,16 +115,56 @@ function sortLines(lines: string[]): string[] {
 
 		const replacement = [...unchecked, ...checked].flatMap(sortBlock);
 
-		result.splice(index, group.end - index, ...replacement);
-
 		/*
-		 * Sorting preserves the line count, so the next group starts where
-		 * this one ended.
+		 * Sorting preserves the line count, so write the group back in
+		 * place. Splicing with a spread would overflow the call stack on
+		 * groups past roughly 124k lines.
 		 */
+		for (let offset = 0; offset < replacement.length; offset++) {
+			result[index + offset] = replacement[offset] ?? "";
+		}
+
 		index += replacement.length;
 	}
 
 	return result;
+}
+
+/*
+ * Indented (4-space) code blocks are intentionally not detected: inside
+ * list content that indentation means nesting, and CommonMark does not
+ * let an indented code block interrupt a list, so treating it as code
+ * would mis-handle nested subtasks.
+ */
+function parseFenceOpen(line: string): OpenFence | null {
+	const match = FENCE_OPEN.exec(line);
+
+	if (!match) {
+		return null;
+	}
+
+	const run = match[1] ?? "";
+
+	return {
+		marker: run[0] ?? "`",
+		length: run.length,
+	};
+}
+
+/**
+ * A closing fence must use the same marker character, be at least as
+ * long as the opening run, and carry no info string.
+ */
+function closesFence(line: string, fence: OpenFence): boolean {
+	const match = FENCE_CLOSE.exec(line);
+
+	if (!match) {
+		return false;
+	}
+
+	const run = match[1] ?? "";
+
+	return run[0] === fence.marker && run.length >= fence.length;
 }
 
 /**

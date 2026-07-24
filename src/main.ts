@@ -13,20 +13,32 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	private fallbackTimers = new Map<string, number>();
 	private sortTimers = new Map<string, number>();
 
+	private listeningDocuments = new WeakSet<Document>();
+
 	onload(): void {
+		this.registerCheckboxListener(activeDocument);
+
 		/*
-		 * Capture the click before Obsidian's normal checkbox handler runs.
-		 * We only mark the file as pending here. The actual sort happens
-		 * after Obsidian modifies the underlying Markdown file.
+		 * Pop-out windows have their own document, so each new window
+		 * needs its own click listener.
 		 */
-		this.registerDomEvent(
-			activeDocument,
-			"click",
-			(event: MouseEvent) => {
-				this.handleCheckboxClick(event);
-			},
-			true,
+		this.registerEvent(
+			this.app.workspace.on("window-open", (_workspaceWindow, win) => {
+				this.registerCheckboxListener(win.document);
+			}),
 		);
+
+		/*
+		 * Windows that were already open when the plugin loaded never
+		 * fire "window-open"; find their documents through the leaves.
+		 */
+		this.app.workspace.onLayoutReady(() => {
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				this.registerCheckboxListener(
+					leaf.view.containerEl.ownerDocument,
+				);
+			});
+		});
 
 		/*
 		 * Obsidian fires this after it writes the checkbox state to the note.
@@ -74,6 +86,28 @@ export default class SortCheckedTasksPlugin extends Plugin {
 		this.fallbackTimers.clear();
 		this.sortTimers.clear();
 		this.pendingSortPaths.clear();
+	}
+
+	/*
+	 * Capture the click before Obsidian's normal checkbox handler runs.
+	 * The handler only marks the file as pending; the actual sort happens
+	 * after Obsidian modifies the underlying Markdown file.
+	 */
+	private registerCheckboxListener(doc: Document): void {
+		if (this.listeningDocuments.has(doc)) {
+			return;
+		}
+
+		this.listeningDocuments.add(doc);
+
+		this.registerDomEvent(
+			doc,
+			"click",
+			(event: MouseEvent) => {
+				this.handleCheckboxClick(event);
+			},
+			true,
+		);
 	}
 
 	private handleCheckboxClick(event: MouseEvent): void {

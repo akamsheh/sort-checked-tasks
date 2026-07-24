@@ -35,17 +35,40 @@ export const config: WebdriverIO.Config = {
 
 	maxInstances: Number(env.WDIO_MAX_INSTANCES || 4),
 
-	capabilities: versions.map<WebdriverIO.Capabilities>(
-		([appVersion, installerVersion]) => ({
-			browserName: "obsidian",
-			"wdio:obsidianOptions": {
-				appVersion,
-				installerVersion,
-				plugins: ["."],
-				vault: "test/vaults/simple",
-			},
-		}),
-	),
+	capabilities: [
+		...versions.map<WebdriverIO.Capabilities>(
+			([appVersion, installerVersion]) => ({
+				browserName: "obsidian",
+				"wdio:obsidianOptions": {
+					appVersion,
+					installerVersion,
+					plugins: ["."],
+					vault: "test/vaults/simple",
+				},
+			}),
+		),
+		/*
+		 * The plugin claims mobile support (isDesktopOnly: false), so the
+		 * same specs also run against Obsidian's emulated mobile UI.
+		 */
+		...versions.map<WebdriverIO.Capabilities>(
+			([appVersion, installerVersion]) => ({
+				browserName: "obsidian",
+				"wdio:obsidianOptions": {
+					appVersion,
+					installerVersion,
+					emulateMobile: true,
+					plugins: ["."],
+					vault: "test/vaults/simple",
+				},
+				"goog:chromeOptions": {
+					mobileEmulation: {
+						deviceMetrics: { width: 390, height: 844 },
+					},
+				},
+			}),
+		),
+	],
 
 	services: ["obsidian"],
 
