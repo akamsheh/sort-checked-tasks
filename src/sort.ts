@@ -30,8 +30,34 @@ const FENCE_LINE = /^[ \t]*(`{3,}|~{3,})/;
 export function sortTaskGroups(contents: string): string {
 	const lineEnding = contents.includes("\r\n") ? "\r\n" : "\n";
 	const lines = contents.split(/\r?\n/);
+	const bodyStart = frontmatterEnd(lines);
 
-	return sortLines(lines).join(lineEnding);
+	return [
+		...lines.slice(0, bodyStart),
+		...sortLines(lines.slice(bodyStart)),
+	].join(lineEnding);
+}
+
+/**
+ * Find the first line after the YAML frontmatter block, if the note has
+ * one. YAML list entries can look exactly like task lines, so sorting
+ * must never reach into the frontmatter.
+ *
+ * Obsidian only treats "---" on the very first line as frontmatter, and
+ * an unterminated block is not frontmatter at all.
+ */
+function frontmatterEnd(lines: string[]): number {
+	if ((lines[0] ?? "").trimEnd() !== "---") {
+		return 0;
+	}
+
+	for (let index = 1; index < lines.length; index++) {
+		if ((lines[index] ?? "").trimEnd() === "---") {
+			return index + 1;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -146,20 +172,40 @@ function findTaskBlockEnd(
 
 	while (index < lines.length) {
 		const line = lines[index] ?? "";
-		const listIndent = parseListIndent(line);
 
-		/*
-		 * The next sibling task or ordinary sibling list item starts a new
-		 * list block, so the current task ends here.
-		 */
-		if (listIndent !== null && listIndent <= parentIndent) {
+		if (line.trim().length === 0) {
+			const next = findNextContentLine(lines, index);
+
+			/*
+			 * Trailing blank lines stay behind rather than traveling with
+			 * a sorted task, so reordering never injects empty lines into
+			 * the middle of a list.
+			 */
+			if (next === null) {
+				return index;
+			}
+
+			const nextLine = lines[next] ?? "";
+
+			if (belongsToBlock(nextLine, parentIndent)) {
+				index = next;
+				continue;
+			}
+
+			const nextTask = parseTask(nextLine);
+
+			/*
+			 * A blank run between sibling tasks is the separator of a
+			 * loose list; it stays attached to the task before it.
+			 */
+			if (nextTask !== null && nextTask.indent === parentIndent) {
+				return next;
+			}
+
 			return index;
 		}
 
-		/*
-		 * A non-indented Markdown block also ends the task.
-		 */
-		if (line.trim().length > 0 && getIndent(line) <= parentIndent) {
+		if (!belongsToBlock(line, parentIndent)) {
 			return index;
 		}
 
@@ -167,6 +213,30 @@ function findTaskBlockEnd(
 	}
 
 	return index;
+}
+
+/**
+ * Whether a content line continues the task block of a parent at the
+ * given indentation, rather than starting a sibling or ending the list.
+ */
+function belongsToBlock(line: string, parentIndent: number): boolean {
+	const listIndent = parseListIndent(line);
+
+	if (listIndent !== null) {
+		return listIndent > parentIndent;
+	}
+
+	return getIndent(line) > parentIndent;
+}
+
+function findNextContentLine(lines: string[], start: number): number | null {
+	for (let index = start + 1; index < lines.length; index++) {
+		if ((lines[index] ?? "").trim().length > 0) {
+			return index;
+		}
+	}
+
+	return null;
 }
 
 function parseTask(line: string): ParsedTask | null {

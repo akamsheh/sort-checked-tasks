@@ -22,10 +22,22 @@ export default tseslint.config(
 			},
 			parserOptions: {
 				projectService: {
-					allowDefaultProject: ["eslint.config.mts", "manifest.json"],
+					allowDefaultProject: [
+						"eslint.config.mts",
+						"manifest.json",
+						"wdio.conf.mts",
+					],
 				},
 				tsconfigRootDir: import.meta.dirname,
 				extraFileExtensions: [".json"],
+			},
+		},
+	},
+	{
+		files: ["test/specs/**/*.ts"],
+		languageOptions: {
+			globals: {
+				...globals.mocha,
 			},
 		},
 	},

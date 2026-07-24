@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"module": "ESNext",
+		"target": "ES2021",
+		"strict": true,
+		"noImplicitReturns": true,
+		"noUncheckedIndexedAccess": true,
+		"moduleResolution": "bundler",
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"allowSyntheticDefaultImports": true,
+		"noEmit": true,
+		"lib": ["ES2021", "DOM"],
+		"types": [
+			"mocha",
+			"@wdio/globals/types",
+			"@wdio/mocha-framework",
+			"expect-webdriverio",
+			"wdio-obsidian-service"
+		]
+	},
+	"include": ["specs/**/*.ts"]
+}

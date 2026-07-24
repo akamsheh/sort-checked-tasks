@@ -204,13 +204,36 @@ describe("sortTaskGroups", () => {
 		expect(sortTaskGroups(input)).toBe(expected);
 	});
 
-	it("attaches a trailing blank line to its task and moves it along", () => {
-		// A blank line after a task is treated as part of that task's block,
-		// so it travels with the task when the group is reordered.
+	it("leaves a trailing blank line behind when the group ends", () => {
+		// The blank line separates the list from the paragraph, so it must
+		// stay put; otherwise the moved task would glue itself onto the
+		// paragraph and change how the Markdown renders.
 		const input = ["- [x] a", "- [ ] b", "", "next paragraph"].join("\n");
-		const expected = ["- [ ] b", "", "- [x] a", "next paragraph"].join(
+		const expected = ["- [ ] b", "- [x] a", "", "next paragraph"].join(
 			"\n",
 		);
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("keeps the file's trailing newline in place", () => {
+		const input = "- [x] a\n- [ ] b\n";
+		const expected = "- [ ] b\n- [x] a\n";
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("sorts across the blank separators of a loose list", () => {
+		// The separator stays attached to the task before it.
+		const input = ["- [x] a", "", "- [ ] b", "paragraph"].join("\n");
+		const expected = ["- [ ] b", "- [x] a", "", "paragraph"].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("keeps blank lines that precede a task's own child content", () => {
+		const input = ["- [x] a", "", "\tdetail", "- [ ] b"].join("\n");
+		const expected = ["- [ ] b", "- [x] a", "", "\tdetail"].join("\n");
 
 		expect(sortTaskGroups(input)).toBe(expected);
 	});
@@ -219,5 +242,56 @@ describe("sortTaskGroups", () => {
 		const input = "Just a paragraph.\n\nAnother line.";
 
 		expect(sortTaskGroups(input)).toBe(input);
+	});
+
+	it("never reorders lines inside YAML frontmatter", () => {
+		const input = [
+			"---",
+			"tasks:",
+			"- [x] looks checked",
+			"- [ ] looks unchecked",
+			"---",
+			"- [x] real done",
+			"- [ ] real todo",
+		].join("\n");
+		const expected = [
+			"---",
+			"tasks:",
+			"- [x] looks checked",
+			"- [ ] looks unchecked",
+			"---",
+			"- [ ] real todo",
+			"- [x] real done",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("treats an unterminated leading --- as normal content", () => {
+		const input = ["---", "- [x] a", "- [ ] b"].join("\n");
+		const expected = ["---", "- [ ] b", "- [x] a"].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
+	});
+
+	it("only recognizes frontmatter on the very first line", () => {
+		const input = [
+			"- [x] a",
+			"- [ ] b",
+			"---",
+			"- [x] c",
+			"- [ ] d",
+			"---",
+		].join("\n");
+		const expected = [
+			"- [ ] b",
+			"- [x] a",
+			"---",
+			"- [ ] d",
+			"- [x] c",
+			"---",
+		].join("\n");
+
+		expect(sortTaskGroups(input)).toBe(expected);
 	});
 });

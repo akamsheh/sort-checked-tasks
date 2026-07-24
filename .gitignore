@@ -18,6 +18,10 @@ main.js
 # test coverage
 coverage
 
+# downloaded Obsidian versions for e2e tests
+.obsidian-cache
+obsidian-versions-lock.txt
+
 # obsidian
 data.json
 
