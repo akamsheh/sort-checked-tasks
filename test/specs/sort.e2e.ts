@@ -84,4 +84,68 @@ describe("Sort Checked Tasks", function () {
 			["- [ ] gamma", "- [x] alpha", "- [x] beta", ""].join("\n"),
 		);
 	});
+
+	it("sorts after a checkbox click in a pop-out window", async function () {
+		const isMobile = await browser.executeObsidian(
+			({ obsidian }) => obsidian.Platform.isMobile,
+		);
+
+		if (isMobile) {
+			// Mobile has no pop-out windows.
+			this.skip();
+		}
+
+		const mainHandle = await browser.getWindowHandle();
+
+		await obsidianPage.openFile("Click.md");
+
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(
+				obsidian.MarkdownView,
+			);
+
+			if (!view) {
+				throw new Error("No active markdown view to pop out");
+			}
+
+			app.workspace.moveLeafToPopout(view.leaf);
+		});
+
+		/*
+		 * The pop-out is a separate OS window, so it appears as a second
+		 * WebDriver window handle.
+		 */
+		await browser.waitUntil(
+			async () => (await browser.getWindowHandles()).length > 1,
+		);
+
+		const handles = await browser.getWindowHandles();
+		const popoutHandle = handles.find((handle) => handle !== mainHandle);
+
+		if (!popoutHandle) {
+			throw new Error("Pop-out window handle not found");
+		}
+
+		await browser.switchToWindow(popoutHandle);
+
+		const checkbox = browser.$(
+			".markdown-reading-view input.task-list-item-checkbox",
+		);
+		await checkbox.waitForClickable();
+		await checkbox.click();
+
+		await browser.switchToWindow(mainHandle);
+
+		await expectNoteToBecome(
+			"Click.md",
+			["- [ ] gamma", "- [x] alpha", "- [x] beta", ""].join("\n"),
+		);
+
+		/*
+		 * Close the pop-out so later tests start from a single window.
+		 */
+		await browser.switchToWindow(popoutHandle);
+		await browser.closeWindow();
+		await browser.switchToWindow(mainHandle);
+	});
 });
