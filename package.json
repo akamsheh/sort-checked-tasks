@@ -1,6 +1,6 @@
 {
 	"name": "sort-checked-tasks",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Obsidian plugin that moves checked checklist items to the bottom of their task group.",
 	"author": "Adam Kamsheh",
 	"license": "MIT",

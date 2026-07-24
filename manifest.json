@@ -1,7 +1,7 @@
 {
 	"id": "sort-checked-tasks",
 	"name": "Sort Checked Tasks",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"minAppVersion": "1.5.3",
 	"description": "Moves checked checklist items to the bottom of their task group.",
 	"author": "Adam Kamsheh",
