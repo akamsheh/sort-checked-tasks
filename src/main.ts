@@ -29,16 +29,20 @@ export default class SortCheckedTasksPlugin extends Plugin {
 		);
 
 		/*
-		 * Windows that were already open when the plugin loaded never
-		 * fire "window-open"; find their documents through the leaves.
+		 * Catches windows that "window-open" does not report: ones already
+		 * open when the plugin loaded, and pop-outs on Obsidian versions
+		 * where the event fires before the document is usable. Registering
+		 * is idempotent, so re-scanning on every layout change is cheap.
 		 */
 		this.app.workspace.onLayoutReady(() => {
-			this.app.workspace.iterateAllLeaves((leaf) => {
-				this.registerCheckboxListener(
-					leaf.view.containerEl.ownerDocument,
-				);
-			});
+			this.registerListenersForOpenLeaves();
 		});
+
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.registerListenersForOpenLeaves();
+			}),
+		);
 
 		/*
 		 * Obsidian fires this after it writes the checkbox state to the note.
@@ -88,6 +92,12 @@ export default class SortCheckedTasksPlugin extends Plugin {
 		this.pendingSortPaths.clear();
 	}
 
+	private registerListenersForOpenLeaves(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			this.registerCheckboxListener(leaf.view.containerEl.ownerDocument);
+		});
+	}
+
 	/*
 	 * Capture the click before Obsidian's normal checkbox handler runs.
 	 * The handler only marks the file as pending; the actual sort happens
@@ -120,21 +130,23 @@ export default class SortCheckedTasksPlugin extends Plugin {
 			return;
 		}
 
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		/*
+		 * Resolve the view from the clicked checkbox rather than from the
+		 * workspace's active view. A pop-out window is not necessarily the
+		 * active leaf — older Obsidian versions never report it as one —
+		 * so trusting the active view drops the click silently.
+		 */
+		const view = this.findMarkdownViewContaining(target);
 
 		/*
 		 * getMode() returns "preview" for Reading View.
 		 * Live Preview and Source mode both return "source".
 		 */
-		if (
-			!view ||
-			view.getMode() !== "preview" ||
-			!view.containerEl.contains(target)
-		) {
+		if (!view || view.getMode() !== "preview") {
 			return;
 		}
 
-		const file = this.app.workspace.getActiveFile();
+		const file = view.file;
 
 		if (!file || file.extension !== "md") {
 			return;
@@ -142,6 +154,18 @@ export default class SortCheckedTasksPlugin extends Plugin {
 
 		this.pendingSortPaths.add(file.path);
 		this.armFallbackTimer(file);
+	}
+
+	private findMarkdownViewContaining(target: Node): MarkdownView | null {
+		const views: MarkdownView[] = [];
+
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view instanceof MarkdownView) {
+				views.push(leaf.view);
+			}
+		});
+
+		return views.find((view) => view.containerEl.contains(target)) ?? null;
 	}
 
 	private handleVaultModify(file: TAbstractFile): void {
