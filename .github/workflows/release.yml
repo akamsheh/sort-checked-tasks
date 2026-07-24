@@ -8,14 +8,21 @@ on:
             # version check below rather than silently doing nothing.
             - "[0-9]+.[0-9]+.[0-9]+*"
             - "v[0-9]+.[0-9]+.[0-9]+*"
+    # One-click release: bumps the version, runs the full test suite, and only
+    # pushes the commit + tag and publishes if everything passes.
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to release, no v prefix (e.g. 0.3.0)"
+                required: true
 
 permissions:
     contents: read
 
 jobs:
-    build:
+    release:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
         permissions:
             contents: write
             id-token: write
@@ -31,16 +38,41 @@ jobs:
 
             - run: npm ci
 
-            # A tag is the only build users install, so verify it before
-            # anything is published.
-            - name: Check the tag matches the plugin version
+            # Runs the repo's "version" script (version-bump.mjs), which keeps
+            # manifest.json and versions.json in sync, then commits and tags.
+            # .npmrc sets tag-version-prefix="" so the tag has no "v" prefix.
+            # Nothing is pushed yet: a failure below leaves the repo untouched.
+            - name: Bump version (manual dispatch only)
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  VERSION: ${{ inputs.version }}
               run: |
-                  tag="${GITHUB_REF#refs/tags/}"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  npm version "$VERSION"
+
+            - name: Resolve release tag
+              id: tag
+              env:
+                  VERSION: ${{ inputs.version }}
+              run: |
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+                  fi
+
+            # A release is the only build users install, so verify everything
+            # before anything is published.
+            - name: Check the tag matches the plugin version
+              env:
+                  TAG: ${{ steps.tag.outputs.tag }}
+              run: |
                   manifest_version="$(node -p "require('./manifest.json').version")"
                   package_version="$(node -p "require('./package.json').version")"
 
-                  if [ "$tag" != "$manifest_version" ]; then
-                    echo "::error::Tag '$tag' does not match manifest.json version '$manifest_version'. Obsidian requires the tag to match exactly, with no leading 'v'."
+                  if [ "$TAG" != "$manifest_version" ]; then
+                    echo "::error::Tag '$TAG' does not match manifest.json version '$manifest_version'. Obsidian requires the tag to match exactly, with no leading 'v'."
                     exit 1
                   fi
 
@@ -54,10 +86,7 @@ jobs:
                     exit 1
                   fi
 
-            # The e2e suite runs in CI on every push to the integration branch;
-            # repeating the Obsidian download here would roughly double the
-            # release time, so the tag gates on lint, types, and unit tests.
-            - name: Verify
+            - name: Lint, format, and unit tests
               run: |
                   npm run lint
                   npm run format:check
@@ -65,6 +94,38 @@ jobs:
 
             - name: Build plugin
               run: npm run build
+
+            # The release publishes without human review, so the full e2e
+            # suite gates it: real Obsidian builds, desktop and emulated
+            # mobile, at the oldest supported version and the latest.
+            - name: Resolve Obsidian versions for cache key
+              run: |
+                  npx tsx wdio.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
+                  rm -rf .obsidian-cache
+
+            - name: Cache Obsidian downloads
+              uses: actions/cache@v4
+              with:
+                  path: .obsidian-cache
+                  key: obsidian-cache-${{ runner.os }}-${{ hashFiles('obsidian-versions-lock.txt') }}
+                  restore-keys: |
+                      obsidian-cache-${{ runner.os }}-
+
+            - name: Set up virtual display
+              run: |
+                  sudo apt-get update -q
+                  sudo apt-get install -q -y herbstluftwm x11-xserver-utils
+                  export DISPLAY=:99
+                  echo "DISPLAY=$DISPLAY" >> "$GITHUB_ENV"
+                  Xvfb $DISPLAY -screen 0 1280x1024x24 +extension GLX -noreset &
+                  sleep 1
+                  herbstluftwm &
+                  sleep 1
+
+            - name: Run e2e tests
+              run: npm run test:e2e
+              env:
+                  WDIO_MAX_INSTANCES: "2"
 
             - name: Check for optional styles
               id: styles
@@ -78,13 +139,20 @@ jobs:
                       main.js
                       ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
 
+            - name: Push version bump (manual dispatch only)
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  TAG: ${{ steps.tag.outputs.tag }}
+              run: |
+                  git push origin "HEAD:$GITHUB_REF_NAME"
+                  git push origin "$TAG"
+
             - name: Create release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ steps.tag.outputs.tag }}
               run: |
-                  tag="${GITHUB_REF#refs/tags/}"
-
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
+                  gh release create "$TAG" \
+                    --title="$TAG" \
+                    --generate-notes \
                     main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
