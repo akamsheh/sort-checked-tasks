@@ -1,30 +1,45 @@
 name: CI
 
 on:
+    # Feature branches are covered by pull_request, so pushes only run on the
+    # integration branches. Otherwise every push to a branch with an open PR
+    # would run the whole suite twice.
     push:
-        branches: ["**"]
+        branches: [main, master]
     pull_request:
-        branches: ["**"]
+    # "latest" in wdio.conf.mts resolves at run time, so a new Obsidian release
+    # can break the plugin without any commit of ours. A weekly run surfaces
+    # that here instead of in a user's bug report.
+    schedule:
+        - cron: "0 6 * * 1"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build:
         runs-on: ubuntu-latest
-
-        strategy:
-            matrix:
-                node-version: [20.x, 22.x, 24.x]
-                # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+        timeout-minutes: 10
 
         steps:
             - uses: actions/checkout@v6
-            - name: Use Node.js ${{ matrix.node-version }}
-              uses: actions/setup-node@v6
+            - uses: actions/setup-node@v6
               with:
-                  node-version: ${{ matrix.node-version }}
+                  # The plugin is bundled by esbuild and runs in Obsidian's
+                  # Electron runtime, never in Node, so the Node version has no
+                  # effect on the shipped main.js. This matches release.yml,
+                  # which is the build users actually install.
+                  node-version: 24.x
                   cache: "npm"
             - run: npm ci
-            - run: npm run build --if-present
+            - run: npm run build
             - run: npm run lint
+            - run: npm run format:check
             - run: npm test
 
     # Runs the plugin inside real Obsidian builds via wdio-obsidian-service.
@@ -33,6 +48,7 @@ jobs:
     # full supported range.
     e2e:
         runs-on: ubuntu-latest
+        timeout-minutes: 20
 
         steps:
             - uses: actions/checkout@v6
@@ -47,14 +63,16 @@ jobs:
               run: |
                   npx tsx wdio.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
                   rm -rf .obsidian-cache
-              env:
-                  CI: "true"
 
             - name: Cache Obsidian downloads
               uses: actions/cache@v4
               with:
                   path: .obsidian-cache
-                  key: obsidian-cache-${{ hashFiles('obsidian-versions-lock.txt') }}
+                  # restore-keys lets a bumped "latest" reuse the already
+                  # downloaded "earliest" build instead of starting cold.
+                  key: obsidian-cache-${{ runner.os }}-${{ hashFiles('obsidian-versions-lock.txt') }}
+                  restore-keys: |
+                      obsidian-cache-${{ runner.os }}-
 
             - name: Set up virtual display
               run: |
@@ -77,6 +95,7 @@ jobs:
     # the newest API to catch upcoming deprecations before they ship.
     typecheck-latest-api:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
 
         steps:
             - uses: actions/checkout@v6

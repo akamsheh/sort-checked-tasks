@@ -3,11 +3,19 @@ name: Release Obsidian plugin
 on:
     push:
         tags:
-            - "*"
+            # Obsidian requires the release tag to match manifest.json exactly.
+            # The "v" form is matched too, so pushing one fails loudly in the
+            # version check below rather than silently doing nothing.
+            - "[0-9]+.[0-9]+.[0-9]+*"
+            - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+    contents: read
 
 jobs:
     build:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         permissions:
             contents: write
             id-token: write
@@ -21,10 +29,42 @@ jobs:
                   node-version: 24
                   cache: "npm"
 
-            - name: Build plugin
+            - run: npm ci
+
+            # A tag is the only build users install, so verify it before
+            # anything is published.
+            - name: Check the tag matches the plugin version
               run: |
-                  npm ci
-                  npm run build
+                  tag="${GITHUB_REF#refs/tags/}"
+                  manifest_version="$(node -p "require('./manifest.json').version")"
+                  package_version="$(node -p "require('./package.json').version")"
+
+                  if [ "$tag" != "$manifest_version" ]; then
+                    echo "::error::Tag '$tag' does not match manifest.json version '$manifest_version'. Obsidian requires the tag to match exactly, with no leading 'v'."
+                    exit 1
+                  fi
+
+                  if [ "$package_version" != "$manifest_version" ]; then
+                    echo "::error::package.json version '$package_version' does not match manifest.json version '$manifest_version'."
+                    exit 1
+                  fi
+
+                  if ! node -e "process.exit(require('./versions.json')[process.argv[1]] ? 0 : 1)" "$manifest_version"; then
+                    echo "::error::versions.json has no minAppVersion entry for '$manifest_version'. Run 'npm version' to update it."
+                    exit 1
+                  fi
+
+            # The e2e suite runs in CI on every push to the integration branch;
+            # repeating the Obsidian download here would roughly double the
+            # release time, so the tag gates on lint, types, and unit tests.
+            - name: Verify
+              run: |
+                  npm run lint
+                  npm run format:check
+                  npm test
+
+            - name: Build plugin
+              run: npm run build
 
             - name: Check for optional styles
               id: styles
