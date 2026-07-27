@@ -1,11 +1,12 @@
 # Sort Checked Tasks
 
-An [Obsidian](https://obsidian.md) plugin that keeps your checklists tidy by moving completed items to the bottom of their task group.
+Keeps your checklists tidy by moving completed items to the bottom of their task group. Works in read mode only.
 
 When you check off a task, the unchecked items stay at the top and the checked ones sink to the bottom — so what's left to do is always front and center.
 
 ## Features
 
+- **Fully asynchronous** — clicking a checkbox never blocks the UI. The sort is scheduled, debounced, and written back through Obsidian's own queued file API, so your click registers instantly and the reorder follows.
 - **Sorts on checkbox click** in Reading View — tick an item and the list reorders automatically, including in pop-out windows.
 - **Command palette action** — run **Sort Checked Tasks: Sort current note** to sort on demand in any mode (Source, Live Preview, or Reading View). Edit mode is only sorted via this command.
 - **Stable ordering** — items keep their relative order within the checked and unchecked groups; only the checked/unchecked split moves.
