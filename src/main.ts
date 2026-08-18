@@ -8,6 +8,28 @@ import { sortTaskGroups } from "./sort";
  */
 const PENDING_EXPIRY_MS = 10_000;
 
+/**
+ * Recognize a Reading View checkbox without `instanceof`.
+ *
+ * A pop-out window may hold elements built by a different JavaScript
+ * realm than the one the plugin runs in, and which realm that is varies
+ * by platform and Obsidian version: on some, popping a note out moves the
+ * original elements across and they keep this realm's prototypes; on
+ * others the pop-out redraws and builds its own. `instanceof
+ * HTMLInputElement` answers false for the foreign ones and silently drops
+ * the click, so match on what the element does rather than where it came
+ * from.
+ */
+function asTaskCheckbox(target: EventTarget | null): Element | null {
+	const element = target as Element | null;
+
+	if (!element || typeof element.matches !== "function") {
+		return null;
+	}
+
+	return element.matches("input.task-list-item-checkbox") ? element : null;
+}
+
 export default class SortCheckedTasksPlugin extends Plugin {
 	/**
 	 * Files whose Reading View checkbox was just clicked.
@@ -128,12 +150,9 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	}
 
 	private handleCheckboxClick(event: MouseEvent): void {
-		const target = event.target;
+		const target = asTaskCheckbox(event.target);
 
-		if (
-			!(target instanceof HTMLInputElement) ||
-			!target.matches("input.task-list-item-checkbox")
-		) {
+		if (!target) {
 			return;
 		}
 
