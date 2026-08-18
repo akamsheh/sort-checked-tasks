@@ -1,6 +1,35 @@
 import { MarkdownView, Plugin, TAbstractFile, TFile } from "obsidian";
 import { sortTaskGroups } from "./sort";
 
+/*
+ * How long a checkbox click waits for Obsidian's write. Generous, because
+ * the wait itself is harmless: the click is simply forgotten if no write
+ * ever arrives.
+ */
+const PENDING_EXPIRY_MS = 10_000;
+
+/**
+ * Recognize a Reading View checkbox without `instanceof`.
+ *
+ * A pop-out window may hold elements built by a different JavaScript
+ * realm than the one the plugin runs in, and which realm that is varies
+ * by platform and Obsidian version: on some, popping a note out moves the
+ * original elements across and they keep this realm's prototypes; on
+ * others the pop-out redraws and builds its own. `instanceof
+ * HTMLInputElement` answers false for the foreign ones and silently drops
+ * the click, so match on what the element does rather than where it came
+ * from.
+ */
+function asTaskCheckbox(target: EventTarget | null): Element | null {
+	const element = target as Element | null;
+
+	if (!element || typeof element.matches !== "function") {
+		return null;
+	}
+
+	return element.matches("input.task-list-item-checkbox") ? element : null;
+}
+
 export default class SortCheckedTasksPlugin extends Plugin {
 	/**
 	 * Files whose Reading View checkbox was just clicked.
@@ -10,7 +39,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	 */
 	private pendingSortPaths = new Set<string>();
 
-	private fallbackTimers = new Map<string, number>();
+	private pendingExpiryTimers = new Map<string, number>();
 	private sortTimers = new Map<string, number>();
 
 	private listeningDocuments = new WeakSet<Document>();
@@ -79,7 +108,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		for (const timer of this.fallbackTimers.values()) {
+		for (const timer of this.pendingExpiryTimers.values()) {
 			window.clearTimeout(timer);
 		}
 
@@ -87,7 +116,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 			window.clearTimeout(timer);
 		}
 
-		this.fallbackTimers.clear();
+		this.pendingExpiryTimers.clear();
 		this.sortTimers.clear();
 		this.pendingSortPaths.clear();
 	}
@@ -121,12 +150,9 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	}
 
 	private handleCheckboxClick(event: MouseEvent): void {
-		const target = event.target;
+		const target = asTaskCheckbox(event.target);
 
-		if (
-			!(target instanceof HTMLInputElement) ||
-			!target.matches("input.task-list-item-checkbox")
-		) {
+		if (!target) {
 			return;
 		}
 
@@ -153,7 +179,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 		}
 
 		this.pendingSortPaths.add(file.path);
-		this.armFallbackTimer(file);
+		this.armPendingExpiry(file.path);
 	}
 
 	private findMarkdownViewContaining(target: Node): MarkdownView | null {
@@ -178,7 +204,7 @@ export default class SortCheckedTasksPlugin extends Plugin {
 		 * Clear the pending state before our own write so it cannot loop.
 		 */
 		this.pendingSortPaths.delete(file.path);
-		this.clearFallbackTimer(file.path);
+		this.clearPendingExpiry(file.path);
 
 		/*
 		 * A very short delay allows Obsidian to finish its own render cycle.
@@ -187,32 +213,32 @@ export default class SortCheckedTasksPlugin extends Plugin {
 	}
 
 	/*
-	 * Normally Obsidian's checkbox write triggers Vault "modify".
-	 * This fallback prevents a missed event from leaving the click pending.
+	 * A click only ever sorts in response to Obsidian's own write, never on
+	 * a timer: sorting while that write is still in flight loses the race,
+	 * because Obsidian writes back the line offsets it read before the sort
+	 * and so undoes it. Popping a note out into its own window is slow
+	 * enough to make that gap visible.
+	 *
+	 * The expiry only forgets a click whose write never arrived, so a much
+	 * later unrelated edit cannot trigger a surprise sort.
 	 */
-	private armFallbackTimer(file: TFile): void {
-		this.clearFallbackTimer(file.path);
+	private armPendingExpiry(path: string): void {
+		this.clearPendingExpiry(path);
 
 		const timer = window.setTimeout(() => {
-			this.fallbackTimers.delete(file.path);
+			this.pendingExpiryTimers.delete(path);
+			this.pendingSortPaths.delete(path);
+		}, PENDING_EXPIRY_MS);
 
-			if (!this.pendingSortPaths.has(file.path)) {
-				return;
-			}
-
-			this.pendingSortPaths.delete(file.path);
-			this.scheduleSort(file);
-		}, 750);
-
-		this.fallbackTimers.set(file.path, timer);
+		this.pendingExpiryTimers.set(path, timer);
 	}
 
-	private clearFallbackTimer(path: string): void {
-		const timer = this.fallbackTimers.get(path);
+	private clearPendingExpiry(path: string): void {
+		const timer = this.pendingExpiryTimers.get(path);
 
 		if (timer !== undefined) {
 			window.clearTimeout(timer);
-			this.fallbackTimers.delete(path);
+			this.pendingExpiryTimers.delete(path);
 		}
 	}
 
